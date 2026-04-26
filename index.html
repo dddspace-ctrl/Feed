@@ -461,33 +461,49 @@ async function loadReddit() {
   const el = document.getElementById('feed');
   if (!cfg.reddit.length) { el.innerHTML = '<div class="status">no subreddits — tap ⚙ to add</div>'; return; }
 
+  const PROXIES = [
+    url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+  ];
+
   const all = [];
+  const errors = [];
+
   await Promise.allSettled(cfg.reddit.map(async sub => {
-    try {
-      const rssUrl = `https://www.reddit.com/r/${sub}.rss?limit=25`;
-      const r = await fetch(PROXY + encodeURIComponent(rssUrl));
-      const wrapped = await r.json();
-      const xml = new DOMParser().parseFromString(wrapped.contents, 'application/xml');
-      Array.from(xml.querySelectorAll('entry')).forEach(e => {
-        const title = e.querySelector('title')?.textContent || '';
-        const link  = e.querySelector('link')?.getAttribute('href') || '';
-        const date  = e.querySelector('updated')?.textContent || '';
-        // extract subreddit from link e.g. /r/popular/comments/...
-        const subMatch = link.match(/reddit\.com(\/r\/[^/]+)/);
-        const src = subMatch ? subMatch[1] : `r/${sub}`;
-        all.push({
-          title,
-          url:  link,
-          src,
-          date: date ? new Date(date) : null
+    const rssUrl = `https://old.reddit.com/r/${sub}.rss?limit=25`;
+    let parsed = null;
+
+    for (const makeProxy of PROXIES) {
+      try {
+        const r = await fetch(makeProxy(rssUrl));
+        if (!r.ok) continue;
+        const text = await r.text();
+        // corsproxy returns raw text; allorigins returns JSON with .contents
+        let xmlStr = text;
+        try { xmlStr = JSON.parse(text).contents; } catch {}
+        const xml = new DOMParser().parseFromString(xmlStr, 'application/xml');
+        const entries = Array.from(xml.querySelectorAll('entry'));
+        if (!entries.length) continue;
+        entries.forEach(e => {
+          const title = e.querySelector('title')?.textContent || '';
+          const link  = e.querySelector('link')?.getAttribute('href') || '';
+          const date  = e.querySelector('updated')?.textContent || '';
+          const subMatch = link.match(/reddit\.com(\/r\/[^/]+)/i);
+          all.push({ title, url: link, src: subMatch ? subMatch[1] : `r/${sub}`, date: date ? new Date(date) : null });
         });
-      });
-    } catch {}
+        parsed = true;
+        break;
+      } catch(e) { errors.push(`${sub}: ${e.message}`); }
+    }
+    if (!parsed) errors.push(`r/${sub}: failed all proxies`);
   }));
 
   all.sort((a,b) => (b.date||0) - (a.date||0));
 
-  if (!all.length) { el.innerHTML = '<div class="status">nothing loaded</div>'; return; }
+  if (!all.length) {
+    el.innerHTML = `<div class="status">nothing loaded</div><div class="err">${errors.map(esc).join('<br>')}</div>`;
+    return;
+  }
 
   el.innerHTML = all.map((p,i) => `
     <a class="item" href="${esc(p.url)}" target="_blank" rel="noopener" style="animation-delay:${i*20}ms">
