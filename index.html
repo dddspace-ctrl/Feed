@@ -489,7 +489,10 @@ async function loadReddit() {
           const link  = e.querySelector('link')?.getAttribute('href') || '';
           const date  = e.querySelector('updated')?.textContent || '';
           const subMatch = link.match(/reddit\.com(\/r\/[^/]+)/i);
-          all.push({ title, url: link, src: subMatch ? subMatch[1] : `r/${sub}`, date: date ? new Date(date) : null });
+          const content = e.querySelector('content')?.textContent || '';
+          const imgMatch = content.match(/<img[^>]+src="(https:\/\/[^"]+(?:jpg|jpeg|png|gif|webp)[^"]*)"/i);
+          const thumb = imgMatch ? imgMatch[1] : null;
+          all.push({ title, url: link, thumb, src: subMatch ? subMatch[1] : `r/${sub}`, date: date ? new Date(date) : null });
         });
         parsed = true;
         break;
@@ -507,7 +510,9 @@ async function loadReddit() {
 
   el.innerHTML = all.map((p,i) => `
     <a class="item" href="${esc(p.url)}" target="_blank" rel="noopener" style="animation-delay:${i*20}ms">
-      <div class="thumb-ph" style="color:#d4430f">●</div>
+      ${p.thumb
+        ? `<img class="thumb" src="${esc(p.thumb)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\'thumb-ph\'style=\'color:#d4430f\'>●</div>'">`
+        : `<div class="thumb-ph" style="color:#d4430f">●</div>`}
       <div class="item-body">
         <div class="item-title">${esc(p.title)}</div>
         <div class="item-meta">
