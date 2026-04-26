@@ -464,39 +464,39 @@ async function loadReddit() {
   const all = [];
   await Promise.allSettled(cfg.reddit.map(async sub => {
     try {
-      const r = await fetch(`https://www.reddit.com/r/${sub}.json?limit=20&raw_json=1`);
-      const d = await r.json();
-      d.data.children.forEach(p => {
-        const x = p.data;
-        if (x.stickied) return;
+      const rssUrl = `https://www.reddit.com/r/${sub}.rss?limit=25`;
+      const r = await fetch(PROXY + encodeURIComponent(rssUrl));
+      const wrapped = await r.json();
+      const xml = new DOMParser().parseFromString(wrapped.contents, 'application/xml');
+      Array.from(xml.querySelectorAll('entry')).forEach(e => {
+        const title = e.querySelector('title')?.textContent || '';
+        const link  = e.querySelector('link')?.getAttribute('href') || '';
+        const date  = e.querySelector('updated')?.textContent || '';
+        // extract subreddit from link e.g. /r/popular/comments/...
+        const subMatch = link.match(/reddit\.com(\/r\/[^/]+)/);
+        const src = subMatch ? subMatch[1] : `r/${sub}`;
         all.push({
-          title:    x.title,
-          url:      `https://www.reddit.com${x.permalink}`,
-          thumb:    x.thumbnail?.startsWith('http') ? x.thumbnail : null,
-          src:      x.subreddit_name_prefixed,
-          score:    x.score,
-          comments: x.num_comments,
-          date:     new Date(x.created_utc * 1000)
+          title,
+          url:  link,
+          src,
+          date: date ? new Date(date) : null
         });
       });
     } catch {}
   }));
 
-  all.sort((a,b) => b.score - a.score);
+  all.sort((a,b) => (b.date||0) - (a.date||0));
 
   if (!all.length) { el.innerHTML = '<div class="status">nothing loaded</div>'; return; }
 
   el.innerHTML = all.map((p,i) => `
     <a class="item" href="${esc(p.url)}" target="_blank" rel="noopener" style="animation-delay:${i*20}ms">
-      ${p.thumb
-        ? `<img class="thumb" src="${esc(p.thumb)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'thumb-ph\\'>●</div>'">`
-        : `<div class="thumb-ph" style="color:#d4430f">●</div>`}
+      <div class="thumb-ph" style="color:#d4430f">●</div>
       <div class="item-body">
         <div class="item-title">${esc(p.title)}</div>
         <div class="item-meta">
           <span class="meta-src-red">${esc(p.src)}</span>
-          <span>↑${fmt(p.score)}</span>
-          <span>${fmt(p.comments)} comments</span>
+          ${p.date ? `<span>${ago(p.date)}</span>` : ''}
         </div>
       </div>
     </a>`).join('');
